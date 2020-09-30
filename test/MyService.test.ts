@@ -1,49 +1,30 @@
 import MyService from '../src/myservice/MyService';
 import Request from '../src/sso/Request';
 import SSOToken from '../src/sso/SSOToken';
-import { SingleSignOnRegistryDummy } from './__mocks__/SingleSignOnRegistryDummy';
-import { SingleSignOnRegistryValidStub } from './__mocks__/SingleSignOnRegistryValidStub';
-import { SingleSignOnRegistryInvalidStub } from './__mocks__/SingleSignOnRegistryInvalidStub';
-import { SingleSignOnRegistryStub } from './__mocks__/SingleSignOnRegistryStub';
-import { SingleSignOnRegistryFake } from './__mocks__/SingleSignOnRegistryFake';
-import { SingleSignOnRegistrySpy } from './__mocks__/SingleSignOnRegistrySpy';
+import { TestSingleSignOnRegistry } from './__mocks__/TestSingleSignOnRegistry';
+import SingleSignOnRegistry from '../src/sso/SingleSignOnRegistry';
+import { mock } from 'jest-mock-extended';
+import { MockProxy } from 'jest-mock-extended/lib/Mock';
+import Mock = jest.Mock;
 
 describe('MyService', () => {
     it('sso token dummy', () => {
-        const service = new MyService(new SingleSignOnRegistryDummy());
+        const service = new MyService(new TestSingleSignOnRegistry());
 
         expect(() => service.handleRequest(new Request('Foo', new SSOToken('token')))).toThrowError();
     });
 
-    describe('specific stub', () => {
-        it('returns name for valid sso token', () => {
-            const service = new MyService(new SingleSignOnRegistryValidStub());
-
-            const response = service.handleRequest(new Request('Foo', new SSOToken('token')));
-
-            expect(response.getText()).toEqual('hello Foo!');
-        });
-
-        it('returns none for empty sso token', () => {
-            const service = new MyService(new SingleSignOnRegistryInvalidStub());
-
-            const response = service.handleRequest(new Request('Foo', new SSOToken('token')));
-
-            expect(response.getText()).not.toEqual('hello Foo!');
-        });
-    });
-
-    describe('generic stub', () => {
-        let registry!: SingleSignOnRegistryStub;
+    describe('spy on', () => {
+        let registry!: TestSingleSignOnRegistry;
         let service!: MyService;
 
         beforeEach(() => {
-            registry = new SingleSignOnRegistryStub();
+            registry = new TestSingleSignOnRegistry();
             service = new MyService(registry);
         });
 
         it('returns name for valid sso token', () => {
-            registry.setIsValidToReturnValid();
+            jest.spyOn(registry, 'isValid').mockReturnValue(true);
 
             const response = service.handleRequest(new Request('Foo', new SSOToken('token')));
 
@@ -51,7 +32,7 @@ describe('MyService', () => {
         });
 
         it('returns none for empty sso token', () => {
-            registry.setIsValidToReturnInvalid();
+            jest.spyOn(registry, 'isValid').mockReturnValue(false);
 
             const response = service.handleRequest(new Request('Foo', new SSOToken('token')));
 
@@ -59,49 +40,87 @@ describe('MyService', () => {
         });
     });
 
-    describe('fake', () => {
+    describe('jest fn', () => {
+        let registry!: SingleSignOnRegistryFn;
+        let service!: MyService;
+
+        beforeEach(() => {
+            registry = {
+                registerNewSession: jest.fn(),
+                isValid: jest.fn(),
+                unregister: jest.fn(),
+            };
+            service = new MyService(registry);
+        });
+
+        it('returns name for valid sso token', () => {
+            registry.isValid.mockReturnValue(true);
+
+            const response = service.handleRequest(new Request('Foo', new SSOToken('token')));
+
+            expect(response.getText()).toEqual('hello Foo!');
+        });
+
+        it('returns none for empty sso token', () => {
+            registry.isValid.mockReturnValue(false);
+
+            const response = service.handleRequest(new Request('Foo', new SSOToken('token')));
+
+            expect(response.getText()).not.toEqual('hello Foo!');
+        });
+    });
+
+    describe('jest mock extended', () => {
+        let registry!: MockProxy<SingleSignOnRegistry>;
+        let service!: MyService;
+
+        beforeEach(() => {
+            registry = mock<SingleSignOnRegistry>();
+            service = new MyService(registry);
+        });
+
         it('returns token for valid user credentials', () => {
-            const service = new MyService(new SingleSignOnRegistryFake());
+            registry.registerNewSession.mockReturnValue(new SSOToken('valid_user_token'));
 
             const response = service.handleRegister('valid_user', 'password');
 
             expect(response).toEqual(new SSOToken('valid_user_token'));
         });
 
-        it('returns token for another valid user credentials', () => {
-            const service = new MyService(new SingleSignOnRegistryFake());
-
-            const response = service.handleRegister('valid_user1', 'password');
-
-            expect(response).toEqual(new SSOToken('valid_user1_token'));
-        });
-
         it('returns none for invalid user credentials', () => {
-            const service = new MyService(new SingleSignOnRegistryFake());
+            registry.registerNewSession.mockReturnValue(undefined);
 
             const response = service.handleRegister('invalid_user', 'password');
 
-            expect(response).toBeUndefined()
+            expect(response).toBeUndefined();
         });
-    })
+    });
 
-    describe('spy', () => {
+    describe('jest mock extended -> spy', () => {
+        let registry!: MockProxy<SingleSignOnRegistry>;
+        let service!: MyService;
+
+        beforeEach(() => {
+            registry = mock<SingleSignOnRegistry>();
+            service = new MyService(registry);
+        });
+
         it('unregisters token', () => {
-            const singleSignOnRegistrySpy = new SingleSignOnRegistrySpy();
-            const service = new MyService(singleSignOnRegistrySpy);
-
             service.handleUnRegister(new SSOToken('valid'));
 
-            expect(singleSignOnRegistrySpy.didCallUnregister()).toBeTruthy()
-        })
+            expect(registry.unregister).toHaveBeenCalled();
+        });
 
         it('unregisters specific token', () => {
-            const singleSignOnRegistrySpy = new SingleSignOnRegistrySpy();
-            const service = new MyService(singleSignOnRegistrySpy);
-
             service.handleUnRegister(new SSOToken('valid'));
 
-            expect(singleSignOnRegistrySpy.didCallUnregisterWithToken()).toEqual('valid')
-        })
-    })
+            expect(registry.unregister).toHaveBeenCalledWith('valid');
+        });
+    });
 });
+
+interface SingleSignOnRegistryFn extends SingleSignOnRegistry {
+    registerNewSession: Mock<SSOToken>,
+    isValid: Mock<boolean>,
+    unregister: Mock
+}
